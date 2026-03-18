@@ -951,12 +951,15 @@ let workoutTimerInterval = null;
 function startWorkoutTimer() {
   if (workoutTimerInterval) return;
   workoutStartTime = Date.now();
-  const el = document.getElementById("workout-timer");
-  el.style.display = "flex";
+  const header = document.getElementById("workout-timer");
+  header.style.display = "flex";
   workoutTimerInterval = setInterval(() => {
     const secs = Math.floor((Date.now() - workoutStartTime) / 1000);
     const m = Math.floor(secs / 60), s = secs % 60;
-    el.textContent = `${m}:${String(s).padStart(2,"0")}`;
+    const str = `${m}:${String(s).padStart(2,"0")}`;
+    header.textContent = str;
+    const inline = document.getElementById("inline-timer");
+    if (inline) inline.textContent = str;
   }, 1000);
 }
 
@@ -1114,6 +1117,15 @@ function renderContent() {
       <button class="edit-btn ${editMode?'active':''}" onclick="toggleEditMode()">${editMode?'✓ Concluir':'✏️ Editar'}</button>
     </div>
     ${editBanner}
+    ${!editMode ? (workoutTimerInterval
+      ? `<div style="display:flex;align-items:center;gap:10px;background:rgba(0,214,143,0.08);border:1px solid rgba(0,214,143,0.2);border-radius:12px;padding:10px 14px;margin-bottom:12px;">
+          <span style="font-size:13px;color:var(--green);font-weight:700;flex:1">⏱ Treino em andamento</span>
+          <span id="inline-timer" style="font-size:20px;font-weight:800;color:var(--green);font-variant-numeric:tabular-nums"></span>
+        </div>`
+      : `<button onclick="startWorkoutTimer();render()" style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:linear-gradient(135deg,rgba(124,107,255,0.15),rgba(124,107,255,0.05));border:1.5px solid rgba(124,107,255,0.3);border-radius:12px;color:var(--accent);font-size:15px;font-weight:700;padding:14px;cursor:pointer;margin-bottom:12px;min-height:50px;">
+          ▶ Iniciar treino
+        </button>`
+    ) : ""}
     ${exerciciosHTML}
     ${editMode ? `
       <button class="add-exercise-btn" onclick="toggleNewExerciseForm('${activeTab}')">＋ Adicionar exercício ao template</button>
@@ -1315,13 +1327,6 @@ function calcTotalPRs() {
 
 // ── AÇÕES ─────────────────────────────────────────────────────────
 function switchTab(key) {
-  // inicia cronômetro ao entrar num treino
-  if (state.grupos[key] && !editMode) {
-    if (!workoutTimerInterval) startWorkoutTimer();
-  } else {
-    // saiu de um treino
-    if (!state.grupos[key]) stopWorkoutTimer();
-  }
   activeTab = key;
   render();
   window.scrollTo(0,0);
