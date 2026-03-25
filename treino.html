@@ -1073,24 +1073,54 @@ let skippedSet = new Set();       // índices pulados na sessão atual
 let extraExercises = [];           // exercícios avulsos adicionados na sessão
 
 // ── CRONÔMETRO DO TREINO ──────────────────────────────────────────
-let workoutStartTime  = null;
+let workoutStartTime     = null;   // timestamp do último resume
+let workoutElapsed       = 0;      // segundos acumulados antes do último pause
 let workoutTimerInterval = null;
+let workoutPaused        = false;
+
+function workoutTotalSecs() {
+  const sinceResume = workoutStartTime ? Math.floor((Date.now() - workoutStartTime) / 1000) : 0;
+  return workoutElapsed + sinceResume;
+}
+
+function tickWorkoutTimer() {
+  const secs = workoutTotalSecs();
+  const m = Math.floor(secs / 60), s = secs % 60;
+  const str = `${m}:${String(s).padStart(2,"0")}`;
+  const header = document.getElementById("workout-timer");
+  if (header) header.textContent = str;
+  const inline = document.getElementById("inline-timer");
+  if (inline) inline.textContent = str;
+}
 
 function startWorkoutTimer() {
   if (workoutTimerInterval) return;
   skippedSet.clear();
   extraExercises = [];
+  workoutElapsed = 0;
+  workoutPaused  = false;
   workoutStartTime = Date.now();
   const header = document.getElementById("workout-timer");
   header.style.display = "flex";
-  workoutTimerInterval = setInterval(() => {
-    const secs = Math.floor((Date.now() - workoutStartTime) / 1000);
-    const m = Math.floor(secs / 60), s = secs % 60;
-    const str = `${m}:${String(s).padStart(2,"0")}`;
-    header.textContent = str;
-    const inline = document.getElementById("inline-timer");
-    if (inline) inline.textContent = str;
-  }, 1000);
+  workoutTimerInterval = setInterval(tickWorkoutTimer, 1000);
+}
+
+function pauseWorkoutTimer() {
+  if (!workoutTimerInterval || workoutPaused) return;
+  workoutElapsed += Math.floor((Date.now() - workoutStartTime) / 1000);
+  workoutStartTime = null;
+  clearInterval(workoutTimerInterval);
+  workoutTimerInterval = null;
+  workoutPaused = true;
+  render();
+}
+
+function resumeWorkoutTimer() {
+  if (!workoutPaused) return;
+  workoutStartTime = Date.now();
+  workoutPaused    = false;
+  workoutTimerInterval = setInterval(tickWorkoutTimer, 1000);
+  render();
 }
 
 function stopWorkoutTimer() {
@@ -1098,9 +1128,11 @@ function stopWorkoutTimer() {
   workoutTimerInterval = null;
   const el = document.getElementById("workout-timer");
   el.style.display = "none";
-  const dur = workoutStartTime ? Math.floor((Date.now() - workoutStartTime) / 1000) : 0;
+  const dur = workoutTotalSecs();
   workoutStartTime = null;
-  return dur; // em segundos
+  workoutElapsed   = 0;
+  workoutPaused    = false;
+  return dur;
 }
 
 function formatDuration(secs) {
@@ -1247,17 +1279,21 @@ function renderContent() {
       <button class="edit-btn ${editMode?'active':''}" onclick="toggleEditMode()">${editMode?'✓ Concluir':'✏️ Editar'}</button>
     </div>
     ${editBanner}
-    ${!editMode ? (workoutTimerInterval
-      ? `<div style="display:flex;align-items:center;gap:10px;background:rgba(0,214,143,0.08);border:1px solid rgba(0,214,143,0.2);border-radius:12px;padding:10px 14px;margin-bottom:12px;">
-          <span style="font-size:13px;color:var(--green);font-weight:700;flex:1">⏱ Treino em andamento</span>
-          <span id="inline-timer" style="font-size:20px;font-weight:800;color:var(--green);font-variant-numeric:tabular-nums"></span>
+    ${!editMode ? (workoutTimerInterval || workoutPaused
+      ? `<div style="display:flex;align-items:center;gap:10px;background:${workoutPaused?'rgba(255,209,102,0.08)':'rgba(0,214,143,0.08)'};border:1px solid ${workoutPaused?'rgba(255,209,102,0.25)':'rgba(0,214,143,0.2)'};border-radius:12px;padding:10px 14px;margin-bottom:12px;">
+          <span style="font-size:13px;color:${workoutPaused?'var(--yellow)':'var(--green)'};font-weight:700;flex:1">${workoutPaused?'⏸ Treino pausado':'⏱ Treino em andamento'}</span>
+          <span id="inline-timer" style="font-size:20px;font-weight:800;color:${workoutPaused?'var(--yellow)':'var(--green)'};font-variant-numeric:tabular-nums"></span>
+          <button onclick="${workoutPaused?'resumeWorkoutTimer()':'pauseWorkoutTimer()'}"
+            style="margin-left:8px;background:${workoutPaused?'rgba(0,214,143,0.15)':'rgba(255,209,102,0.12)'};border:1px solid ${workoutPaused?'rgba(0,214,143,0.3)':'rgba(255,209,102,0.3)'};border-radius:8px;color:${workoutPaused?'var(--green)':'var(--yellow)'};font-size:13px;font-weight:700;padding:6px 13px;cursor:pointer;min-height:34px;white-space:nowrap;">
+            ${workoutPaused?'▶ Retomar':'⏸ Pausar'}
+          </button>
         </div>`
       : `<button onclick="startWorkoutTimer();render()" style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:linear-gradient(135deg,rgba(124,107,255,0.15),rgba(124,107,255,0.05));border:1.5px solid rgba(124,107,255,0.3);border-radius:12px;color:var(--accent);font-size:15px;font-weight:700;padding:14px;cursor:pointer;margin-bottom:12px;min-height:50px;">
           ▶ Iniciar treino
         </button>`
     ) : ""}
     ${exerciciosHTML}
-    ${workoutTimerInterval && !editMode
+    ${(workoutTimerInterval || workoutPaused) && !editMode
       ? renderExtraExercises()
       : ""}
     ${editMode ? `
@@ -1286,9 +1322,9 @@ function renderContent() {
     ` : `<button class="finish-btn" onclick="abrirModalNota('${activeTab}')">✅ Finalizar treino</button>`}
   `;
 
-  // FAB flutuante só durante treino em andamento
+  // FAB flutuante só durante treino em andamento (inclusive pausado)
   let fab = document.getElementById("fab-add-workout");
-  if (workoutTimerInterval && !editMode) {
+  if ((workoutTimerInterval || workoutPaused) && !editMode) {
     if (!fab) {
       fab = document.createElement("button");
       fab.id = "fab-add-workout";
@@ -1300,6 +1336,14 @@ function renderContent() {
     }
   } else {
     fab?.remove();
+  }
+  // atualizar timer inline imediatamente (necessário quando pausado)
+  if (workoutPaused) {
+    const secs = workoutTotalSecs();
+    const m = Math.floor(secs/60), s = secs%60;
+    const str = `${m}:${String(s).padStart(2,"0")}`;
+    const inline = document.getElementById("inline-timer");
+    if (inline) inline.textContent = str;
   }
 }
 
@@ -1313,7 +1357,7 @@ function renderExerciseCard(grupoKey, idx, ex) {
   const hist      = getHistoricoExercicio(ex.nome);
   const hasChart  = hist.length >= 2;
   const isSkipped = skippedSet.has(idx);
-  const inWorkout = !!workoutTimerInterval;
+  const inWorkout = !!(workoutTimerInterval || workoutPaused);
 
   return `
     <div class="exercise-card ${isPR&&!isSkipped?'pr-glow':''} ${isSkipped?'skipped-card':''}" id="card-${grupoKey}-${idx}">
