@@ -359,6 +359,62 @@
       box-shadow: 0 2px 12px rgba(0,214,143,0.25);
     }
 
+    /* ── PULAR EXERCÍCIO ─────────────────────────────────── */
+    .skip-btn {
+      background: rgba(107,107,128,0.1);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      min-height: 38px;
+      padding: 0 12px;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .skip-btn:active { background: rgba(255,77,109,0.12); color: var(--red); border-color: rgba(255,77,109,0.3); }
+    .skip-btn.skipped {
+      background: rgba(255,77,109,0.1);
+      color: var(--red);
+      border-color: rgba(255,77,109,0.25);
+    }
+    .exercise-card.skipped-card {
+      opacity: 0.45;
+      border-left-color: var(--muted) !important;
+      box-shadow: none !important;
+    }
+    .exercise-card.skipped-card::before { opacity: 0; }
+    .exercise-card.skipped-card .exercise-name { text-decoration: line-through; color: var(--muted); }
+
+    /* ── BOTÃO FLUTUANTE ADD ─────────────────────────────── */
+    .fab-add {
+      position: fixed;
+      bottom: calc(24px + env(safe-area-inset-bottom));
+      right: 18px;
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent2), #ff8fa3);
+      color: white;
+      border: none;
+      font-size: 26px;
+      font-weight: 300;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 20px rgba(255,95,126,0.45);
+      z-index: 200;
+      transition: transform 0.15s, opacity 0.2s;
+      line-height: 1;
+    }
+    .fab-add:active { transform: scale(0.92); }
+
+    /* Modal exercício avulso */
+    .modal-avulso-title { font-size: 17px; font-weight: 800; margin-bottom: 4px; }
+    .modal-avulso-sub   { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+
     /* Sparkline */
     .sparkline-wrap {
       margin-top: 10px;
@@ -556,11 +612,15 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      padding: 10px 0;
+      padding: 11px 10px;
       border-bottom: 1px solid var(--border);
+      border-radius: 10px;
       cursor: pointer;
+      transition: background 0.15s, opacity 0.2s;
+      margin-bottom: 2px;
     }
     .checklist-item:last-child { border-bottom: none; }
+    .checklist-item:active { background: var(--card2); }
     .checklist-item input[type="checkbox"] {
       width: 22px;
       height: 22px;
@@ -568,8 +628,15 @@
       flex-shrink: 0;
       cursor: pointer;
     }
-    .checklist-item-name { font-size: 14px; flex: 1; }
-    .checklist-item-carga { font-size: 13px; color: var(--yellow); font-weight: 700; }
+    .checklist-item-name {
+      font-size: 14px;
+      flex: 1;
+      transition: color 0.2s, text-decoration 0.2s;
+    }
+    .checklist-item-carga { font-size: 13px; color: var(--yellow); font-weight: 700; transition: opacity 0.2s; }
+    .checklist-item.pulado { opacity: 0.4; background: rgba(255,77,109,0.04); }
+    .checklist-item.pulado .checklist-item-name { text-decoration: line-through; color: var(--muted); }
+    .checklist-item.pulado .checklist-item-carga { opacity: 0.4; }
     .checklist-scroll { max-height: 38vh; overflow-y: auto; margin-bottom: 14px; }
 
     /* ── TIMER FLUTUANTE ─────────────────────────────────── */
@@ -841,6 +908,26 @@
 
 <div class="content" id="content"></div>
 
+<!-- Modal exercício avulso (durante treino) -->
+<div class="modal-overlay" id="modal-avulso">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-avulso-title">➕ Exercício extra</div>
+    <div class="modal-avulso-sub">Vai só nessa sessão — não altera o template</div>
+    <div class="form-row"><label>Nome</label><input type="text" id="av-nome" placeholder="Ex: Leg press"></div>
+    <div class="form-row"><label>Observação</label><input type="text" id="av-obs" placeholder="Opcional"></div>
+    <div class="form-grid">
+      <div class="form-row"><label>Séries</label><input type="number" id="av-series" value="3" min="1"></div>
+      <div class="form-row"><label>Reps</label><input type="number" id="av-reps" placeholder="—"></div>
+      <div class="form-row"><label>Carga kg</label><input type="number" id="av-carga" placeholder="—"></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn-cancel" onclick="fecharAvulso()">Cancelar</button>
+      <button class="btn-confirm" onclick="confirmarAvulso()">Adicionar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal finalizar treino -->
 <div class="modal-overlay" id="modal-nota">
   <div class="modal-box">
@@ -982,6 +1069,8 @@ let state    = JSON.parse(JSON.stringify(DEFAULT_DATA));
 let activeTab = Object.keys(state.grupos)[0];
 let editMode  = false;
 let pendingTreinoKey = null;
+let skippedSet = new Set();       // índices pulados na sessão atual
+let extraExercises = [];           // exercícios avulsos adicionados na sessão
 
 // ── CRONÔMETRO DO TREINO ──────────────────────────────────────────
 let workoutStartTime  = null;
@@ -989,6 +1078,8 @@ let workoutTimerInterval = null;
 
 function startWorkoutTimer() {
   if (workoutTimerInterval) return;
+  skippedSet.clear();
+  extraExercises = [];
   workoutStartTime = Date.now();
   const header = document.getElementById("workout-timer");
   header.style.display = "flex";
@@ -1166,6 +1257,9 @@ function renderContent() {
         </button>`
     ) : ""}
     ${exerciciosHTML}
+    ${workoutTimerInterval && !editMode
+      ? renderExtraExercises()
+      : ""}
     ${editMode ? `
       <button class="add-exercise-btn" onclick="toggleNewExerciseForm('${activeTab}')">＋ Adicionar exercício ao template</button>
       <div class="new-exercise-form" id="form-new-ex-${activeTab}">
@@ -1191,35 +1285,55 @@ function renderContent() {
       </div>
     ` : `<button class="finish-btn" onclick="abrirModalNota('${activeTab}')">✅ Finalizar treino</button>`}
   `;
+
+  // FAB flutuante só durante treino em andamento
+  let fab = document.getElementById("fab-add-workout");
+  if (workoutTimerInterval && !editMode) {
+    if (!fab) {
+      fab = document.createElement("button");
+      fab.id = "fab-add-workout";
+      fab.className = "fab-add";
+      fab.title = "Adicionar exercício extra";
+      fab.innerHTML = "＋";
+      fab.onclick = abrirAvulso;
+      document.body.appendChild(fab);
+    }
+  } else {
+    fab?.remove();
+  }
 }
 
 function renderExerciseCard(grupoKey, idx, ex) {
-  const cargaVal = ex.carga != null ? ex.carga : "";
-  const repsVal  = ex.reps  != null ? ex.reps  : "";
-  const dataStr  = ex.dataUpdate ? `Salvo em ${ex.dataUpdate}` : "Carga inicial";
-  const prog     = getProgresso(ex.nome, ex.carga);
-  const badge    = progBadgeHTML(prog);
-  const isPR     = prog?.tipo === "pr";
-  const hist     = getHistoricoExercicio(ex.nome);
-  const hasChart = hist.length >= 2;
+  const cargaVal  = ex.carga != null ? ex.carga : "";
+  const repsVal   = ex.reps  != null ? ex.reps  : "";
+  const dataStr   = ex.dataUpdate ? `Salvo em ${ex.dataUpdate}` : "Carga inicial";
+  const prog      = getProgresso(ex.nome, ex.carga);
+  const badge     = progBadgeHTML(prog);
+  const isPR      = prog?.tipo === "pr";
+  const hist      = getHistoricoExercicio(ex.nome);
+  const hasChart  = hist.length >= 2;
+  const isSkipped = skippedSet.has(idx);
+  const inWorkout = !!workoutTimerInterval;
 
   return `
-    <div class="exercise-card ${isPR?'pr-glow':''}" id="card-${grupoKey}-${idx}">
+    <div class="exercise-card ${isPR&&!isSkipped?'pr-glow':''} ${isSkipped?'skipped-card':''}" id="card-${grupoKey}-${idx}">
       <div class="exercise-header">
-        <span class="exercise-name" onclick="${hasChart?`toggleSparkline('spark-${grupoKey}-${idx}')`:''}"
-          title="${hasChart?'Toque para ver evolução':''}">${ex.nome}${hasChart?' 📈':''}</span>
+        <span class="exercise-name" onclick="${hasChart&&!isSkipped?`toggleSparkline('spark-${grupoKey}-${idx}')`:''}"
+          title="${hasChart?'Toque para ver evolução':''}">${ex.nome}${hasChart&&!isSkipped?' 📈':''}</span>
         <div class="exercise-right">
           ${ex.obs ? `<span class="exercise-obs">${ex.obs}</span>` : ""}
-          ${badge}
+          ${!isSkipped ? badge : ''}
           ${editMode ? `<button class="remove-ex-btn" onclick="removeExercise('${grupoKey}',${idx})">×</button>` : ""}
+          ${inWorkout && !editMode ? `<button class="skip-btn ${isSkipped?'skipped':''}" onclick="toggleSkip(${idx})">${isSkipped?'↩ Voltar':'Pular'}</button>` : ""}
         </div>
       </div>
-      ${hasChart ? `
+      ${hasChart && !isSkipped ? `
         <div class="sparkline-wrap" id="spark-${grupoKey}-${idx}">
           <div class="sparkline-label"><span>Evolução de carga</span></div>
           ${sparklineSVG(hist)}
         </div>
       ` : ""}
+      ${!isSkipped ? `
       <div class="exercise-fields">
         <div class="field-group"><label>Séries</label><input type="number" id="s-${grupoKey}-${idx}" value="${ex.series}" min="1"></div>
         <div class="field-group"><label>Reps</label><input type="number" id="r-${grupoKey}-${idx}" value="${repsVal}" placeholder="—"></div>
@@ -1232,6 +1346,7 @@ function renderExerciseCard(grupoKey, idx, ex) {
           <button class="save-btn" onclick="saveExercise('${grupoKey}',${idx})">Salvar</button>
         </div>
       </div>
+      ` : `<div style="font-size:12px;color:var(--muted);padding:4px 0 2px">Exercício pulado nessa sessão</div>`}
     </div>`;
 }
 
@@ -1404,17 +1519,80 @@ function saveExercise(grupoKey, idx) {
   setTimeout(()=>{ if(btn){btn.textContent="Salvar";btn.classList.remove("saved");} }, 2000);
 }
 
+function togglePulado(idx) {
+  const chk  = document.getElementById(`chk-${idx}`);
+  const item = document.getElementById(`cl-${idx}`);
+  if (chk && item) item.classList.toggle("pulado", !chk.checked);
+}
+
+function toggleSkip(idx) {
+  if (skippedSet.has(idx)) skippedSet.delete(idx);
+  else skippedSet.add(idx);
+  render();
+}
+
+function renderExtraExercises() {
+  if (!extraExercises.length) return "";
+  const items = extraExercises.map((ex,i)=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <span style="font-size:14px;flex:1;font-weight:600">${ex.nome}</span>
+      ${ex.obs?`<span class="exercise-obs">${ex.obs}</span>`:""}
+      <span style="font-size:13px;color:var(--yellow);font-weight:700">${ex.series}×${ex.reps||"?"}${ex.carga?` · ${ex.carga}kg`:""}</span>
+      <button onclick="removerExtra(${i})" style="background:rgba(255,77,109,0.1);border:1px solid rgba(255,77,109,0.2);border-radius:6px;color:var(--red);font-size:13px;cursor:pointer;padding:3px 8px;min-height:28px">×</button>
+    </div>`).join("");
+  return `
+    <div style="background:var(--card);border:1px solid rgba(255,95,126,0.25);border-radius:14px;padding:12px 14px;margin-top:10px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--accent2);margin-bottom:8px">➕ Extras desta sessão</div>
+      ${items}
+    </div>`;
+}
+
+function removerExtra(i) {
+  extraExercises.splice(i,1);
+  render();
+}
+
+function abrirAvulso() {
+  document.getElementById("av-nome").value   = "";
+  document.getElementById("av-obs").value    = "";
+  document.getElementById("av-series").value = "3";
+  document.getElementById("av-reps").value   = "";
+  document.getElementById("av-carga").value  = "";
+  document.getElementById("modal-avulso").classList.add("open");
+  setTimeout(()=>document.getElementById("av-nome").focus(), 350);
+}
+
+function fecharAvulso() {
+  document.getElementById("modal-avulso").classList.remove("open");
+}
+
+function confirmarAvulso() {
+  const nome   = document.getElementById("av-nome").value.trim();
+  if (!nome) { alert("Digite o nome do exercício."); return; }
+  const obs    = document.getElementById("av-obs").value.trim();
+  const series = parseInt(document.getElementById("av-series").value) || 3;
+  const reps   = parseInt(document.getElementById("av-reps").value);
+  const carga  = parseFloat(document.getElementById("av-carga").value);
+  extraExercises.push({ nome, obs, series, reps:isNaN(reps)?null:reps, carga:isNaN(carga)?null:carga });
+  fecharAvulso();
+  render();
+  showToast(`"${nome}" adicionado!`, "green");
+}
+
 // ── FINALIZAR TREINO ──────────────────────────────────────────────
 function abrirModalNota(grupoKey) {
   pendingTreinoKey = grupoKey;
   document.getElementById("nota-input").value = "";
   const grupo = state.grupos[grupoKey];
-  document.getElementById("modal-checklist").innerHTML = grupo.exercicios.map((ex,idx)=>`
-    <label class="checklist-item">
-      <input type="checkbox" id="chk-${idx}" checked>
+  document.getElementById("modal-checklist").innerHTML = grupo.exercicios.map((ex,idx)=>{
+    const pulado = skippedSet.has(idx);
+    return `
+    <label class="checklist-item${pulado?' pulado':''}" id="cl-${idx}">
+      <input type="checkbox" id="chk-${idx}" ${pulado?'':'checked'} onchange="togglePulado(${idx})">
       <span class="checklist-item-name">${ex.nome}</span>
       ${ex.carga?`<span class="checklist-item-carga">${ex.carga}kg</span>`:""}
-    </label>`).join("");
+    </label>`;
+  }).join("");
   document.getElementById("modal-nota").classList.add("open");
 }
 
@@ -1446,7 +1624,13 @@ function finalizarTreino(grupoKey, nota, idxSelecionados) {
     return { idx, nome:ex.nome, obs:ex.obs, series:ex.series, reps:ex.reps, carga:ex.carga };
   }).filter(ex=>!idxSelecionados||idxSelecionados.includes(ex.idx)).map(({idx:_,...ex})=>ex);
 
-  state.historico.push({ timestamp:Date.now(), treinoKey:grupoKey, treinoNome:grupo.nome, exercicios:snapshot, nota:nota||null, duracao });
+  // adicionar exercícios avulsos ao snapshot
+  const extras = extraExercises.map(ex=>({ ...ex, extra:true }));
+
+  state.historico.push({ timestamp:Date.now(), treinoKey:grupoKey, treinoNome:grupo.nome, exercicios:[...snapshot,...extras], nota:nota||null, duracao });
+  skippedSet.clear();
+  extraExercises = [];
+  document.getElementById("fab-add-workout")?.remove();
   saveData();
   showToast("Treino registrado! 🎉","green");
   setTimeout(()=>switchTab("__historico__"),600);
