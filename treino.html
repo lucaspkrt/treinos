@@ -925,21 +925,60 @@ const DEFAULT_DATA = {
   historico: []
 };
 
-// ── STORAGE ───────────────────────────────────────────────────────
-const STORAGE_KEY = "treino_lucas_v2";
+// ── STORAGE (IndexedDB) ───────────────────────────────────────────
+const DB_NAME    = "TreinoLucasDB";
+const DB_VERSION = 1;
+const STORE_NAME = "estado";
+const STATE_KEY  = "main";
 
-function loadData() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) { const p = JSON.parse(saved); if (!p.historico) p.historico = []; return p; }
-    const v1 = localStorage.getItem("treino_lucas_v1");
-    if (v1)   { const o = JSON.parse(v1); o.historico = []; return o; }
-    return JSON.parse(JSON.stringify(DEFAULT_DATA));
-  } catch { return JSON.parse(JSON.stringify(DEFAULT_DATA)); }
+let db = null;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = e => {
+      e.target.result.createObjectStore(STORE_NAME);
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
 }
-function saveData() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 
-let state    = loadData();
+function saveData() {
+  if (!db) return;
+  const tx = db.transaction(STORE_NAME, "readwrite");
+  tx.objectStore(STORE_NAME).put(JSON.parse(JSON.stringify(state)), STATE_KEY);
+}
+
+async function initApp() {
+  try {
+    db = await openDB();
+    const tx  = db.transaction(STORE_NAME, "readonly");
+    const req = tx.objectStore(STORE_NAME).get(STATE_KEY);
+    await new Promise(res => { req.onsuccess = res; req.onerror = res; });
+    if (req.result) {
+      state = req.result;
+      if (!state.historico) state.historico = [];
+    } else {
+      // migrar localStorage legado se existir
+      try {
+        const legacy = localStorage.getItem("treino_lucas_v2") || localStorage.getItem("treino_lucas_v1");
+        if (legacy) {
+          const parsed = JSON.parse(legacy);
+          if (parsed.grupos) { state = parsed; if (!state.historico) state.historico = []; saveData(); }
+        }
+      } catch {}
+    }
+  } catch (err) {
+    console.warn("IndexedDB indisponível, usando estado padrão.", err);
+  }
+  activeTab = Object.keys(state.grupos)[0];
+  render();
+  document.getElementById("today-date").textContent =
+    new Date().toLocaleDateString("pt-BR",{weekday:"short",day:"2-digit",month:"short"});
+}
+
+let state    = JSON.parse(JSON.stringify(DEFAULT_DATA));
 let activeTab = Object.keys(state.grupos)[0];
 let editMode  = false;
 let pendingTreinoKey = null;
@@ -1599,8 +1638,7 @@ function showToast(msg, type="") {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 
 // ── INIT ──────────────────────────────────────────────────────────
-document.getElementById("today-date").textContent = new Date().toLocaleDateString("pt-BR",{weekday:"short",day:"2-digit",month:"short"});
-render();
+initApp();
 </script>
 </body>
 </html>
